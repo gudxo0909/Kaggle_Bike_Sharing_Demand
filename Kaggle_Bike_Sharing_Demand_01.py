@@ -287,3 +287,77 @@ train['log_count'] = np.log(train['count'] + 1) # 0의 값에 로그를 적용�
 train[['count', 'log_count']].head()
 
 sns.distplot(train['log_count']) # log_count 분포도를 시각화한 결과 데이터가 비교적 고르게 분포
+
+# test 데이터에 존재하지 않는 비회원 대여량 데이터, 회원 대여량 데이터를 제외한 데이터들을 features라는 변수로 묶기
+features = ['Year', 'Month', 'Hour', 'season', 'workingday', 'weather', 'temp', 'humidity', 'windspeed', 'Dayofweek']
+features
+
+x_train = train[features]
+print(x_train.shape)
+x_train.head()
+
+x_test = test[features]
+print(x_test.shape)
+x_test.head()
+
+y_train = train['log_count']
+print(y_train.shape)
+y_train.head()
+
+from sklearn.ensemble import RandomForestRegressor
+model = RandomForestRegressor()
+model
+
+'''RandomForestRegressor의 파라미터 중에는 n_estimators가 있는데, 이는 나무의 갯수를 의미한다.
+   나무의 갯수가 많을수록 성능이 좋아지기는 하지만 최적값을 찾을 때는 간단하게 100개 정도로 지정하고 최적값을 찾은 후 갯수를 늘려가는게 좋다.
+   또, n_jobs는 사용할 cpu 코어의 갯수인데, -1로 설정하면 모든 코어를 설정할 수 있다.
+   random_state는 트리 마다 동일한 조건에서 진행하기 위한 옵션이다.'''
+
+'''최적의 max_depth와 max_features를 찾기 위해 grid search 실행
+   grid search나 random search를 진행하기 위해 scoring, 즉, 평가 방법을 알아야 하는데, 자전거 수요 예측에서는
+   RMSLE(Root Mean Squared Logarithmic Error)인데, 예측값과 실제값에 각각 로그 + 1 값을 적용하고
+   둘의 차를 제곱한 후 평균을 낸 값에 루트를 적용.
+   RMSLE는 파이썬 내에서 존재하지 않기 때문에 함수를 생성. 단, 목표 변수인 count 데이터에 이미 로그 값을 적용했기 때문에
+   로그 값을 따로 적용하지 않음.'''
+
+def rmse(p, a):
+    difference = p - a
+    squared = difference ** 2
+    mean = squared.mean()
+    score = np.sqrt(mean) # sqrt -> 루트값 적용
+    return score
+
+# rmse 함수를 스코어러로 만들기 위해 scikitlearn의 metrics에서 make_scorer를 이용
+
+from sklearn.metrics import make_scorer
+rmse_scorer = make_scorer(rmse, greater_is_better = False) # 스코어가 낮을수록 좋은 점수이기 때문에 greater_is_better 파라미터 값을 False로 적용
+rmse_scorer
+
+# grid search에 적용
+
+from sklearn.model_selection import GridSearchCV
+parameters = {
+    'max_depth' : [10, 30, 50, 70, 90],
+    'max_features' : [0.1, 0.3, 0.5, 0.7, 0.9]
+}
+GS = GridSearchCV(model, param_grid = parameters, cv = 20, scoring = rmse_scorer)
+GS.fit(x_train, y_train)
+
+GS.best_params_ # max_depth = 70, max_features = 0.9
+
+model = RandomForestRegressor(n_estimators = 100, max_depth = 30, max_features = 0.9, n_jobs = -1, random_state = 7)
+model
+
+model.fit(x_train, y_train)
+
+log_predictions = model.predict(x_test)
+print(log_predictions.shape)
+log_predictions[:5]
+
+predictions = np.exp(log_predictions) -1 # 지수값을 적용하기 위해 numpy 라이브러리의 exp 사용
+print(predictions.shape)
+predictions[:5]
+
+submit = pd.read_csv('sampleSubmission.csv')
+predictions = submit['count']
+submit.to_csv('results.csv', index = False)
